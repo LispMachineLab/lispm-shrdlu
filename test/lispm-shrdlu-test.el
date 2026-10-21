@@ -133,6 +133,9 @@ of its top, and leaves it where it let go."
       (delete-directory origin t)
       (delete-directory checkout t))))
 
+(defvar-local lispm-shrdlu-test--from nil
+  "Where the next wait looks from: comint moves point with the output.")
+
 (defun lispm-shrdlu-test-wait-for (regexp &optional seconds)
   "Wait until the dialogue holds a match for REGEXP after the last one
 waited for; return non-nil when it came within SECONDS."
@@ -143,9 +146,6 @@ waited for; return non-nil when it came within SECONDS."
       (accept-process-output (get-buffer-process (current-buffer)) 0.1))
     (when found (set-marker lispm-shrdlu-test--from found))
     found))
-
-(defvar-local lispm-shrdlu-test--from nil
-  "Where the next wait looks from: comint moves point with the output.")
 
 (ert-deftest lispm-shrdlu-dialogue ()
   "SHRDLU picks up a big red block, clearing it first, and says what the
