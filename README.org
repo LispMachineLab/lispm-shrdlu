@@ -1,0 +1,49 @@
+#+title: LispM SHRDLU
+
+#+HTML: <p align="center"><a href="https://github.com/LispMachineLab/lispm-shrdlu/actions/workflows/test.yml"><img src="https://github.com/LispMachineLab/lispm-shrdlu/actions/workflows/test.yml/badge.svg" alt="test" /></a></p>
+
+SHRDLU, which Terry Winograd wrote at MIT in 1968-1970, as an application of [[https://github.com/LispMachineLab/lispm-desktop][LispM Desktop]],
+which its App Store installs.  In code, the prefix is ~lispm-shrdlu-~.
+
+* What it does
+
+SHRDLU talks in English about a table of blocks, pyramids and a box, and moves them with a hand.
+The dialogue is below a drawing of the table, where the hand goes up, across and down as SHRDLU
+carries out a command, holding what it grasped:
+
+#+begin_example
+> pick up a big red block.
+Ok.
+
+> grasp the pyramid.
+I don't know which pyramid you mean.
+
+> find a block which is taller than the one you are holding and put it into the box.
+Ok.
+
+> what does the box contain?
+The blue block and the blue pyramid.
+#+end_example
+
+The Sentences menu holds the lines of the dialogue Winograd published in 1972.  The code that
+survives is incomplete: SHRDLU has forgotten some words of that dialogue, as =own= and =mine=,
+and answers some questions as it did not then.
+
+* How it works
+
+This runs the Common Lisp port of the 1990s, revived by Tom Sgouros as [[https://github.com/tsgouros/www-shrdlu][www-shrdlu]], unchanged
+but for fixes kept in [[https://github.com/LispMachineLab/www-shrdlu][LispMachineLab's fork]].  [[https://github.com/LispMachineLab/emacs-cl][Emacs Common Lisp]] runs it, in a batch Emacs
+beside yours; the App Store installs it first.  [[file:lisp/shrdlu.lisp][lisp/shrdlu.lisp]] loads SHRDLU and makes its hand
+report its moves, which lispm-shrdlu.el draws.
+
+The first start fetches SHRDLU's Common Lisp with git, at the commit of
+~lispm-shrdlu-source-revision~, into =~/.emacs.d/lispm-shrdlu/=.  ~M-x lispm-shrdlu~ opens the
+dialogue, ~C-c C-n~ starts it again with the blocks where they began.
+
+* Develop
+
+#+begin_src sh
+make test compile   # EMACS_CL=../emacs-cl SHRDLU_SOURCE=../www-shrdlu by default
+#+end_src
+
+AGPL-3.0-or-later.
