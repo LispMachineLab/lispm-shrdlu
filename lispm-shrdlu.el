@@ -62,7 +62,7 @@
   "Where SHRDLU's Common Lisp is fetched from."
   :type 'string)
 
-(defcustom lispm-shrdlu-source-revision "ee21b43d564e531dc2ea3b07eb7498083fc01f1d"
+(defcustom lispm-shrdlu-source-revision "37cf5af802d23a2d8395dca5411e85d72c635b7d"
   "The commit of `lispm-shrdlu-source-url' SHRDLU runs.
 nil runs what `lispm-shrdlu-source-directory' holds, fetching nothing."
   :type '(choice (const :tag "What the directory holds" nil) string))
