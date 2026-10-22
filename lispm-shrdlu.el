@@ -5,7 +5,7 @@
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-shrdlu
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "30.1"))
+;; Package-Requires: ((emacs "30.1") (emacs-cl "0.6.0"))
 ;; Keywords: games, lisp
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -62,13 +62,15 @@
   "Where SHRDLU's Common Lisp is fetched from."
   :type 'string)
 
-(defcustom lispm-shrdlu-source-revision "2d61def8bd25d28b75665f7f6f31435900213a30"
+(defcustom lispm-shrdlu-source-revision "ee21b43d564e531dc2ea3b07eb7498083fc01f1d"
   "The commit of `lispm-shrdlu-source-url' SHRDLU runs.
 nil runs what `lispm-shrdlu-source-directory' holds, fetching nothing."
   :type '(choice (const :tag "What the directory holds" nil) string))
 
 (defcustom lispm-shrdlu-source-directory (locate-user-emacs-file "lispm-shrdlu/")
-  "The checkout of SHRDLU's Common Lisp, its files in src/."
+  "The checkout of SHRDLU's Common Lisp, its files in src/.
+Fetching moves only a checkout it made itself; another one runs as it is
+when `lispm-shrdlu-source-revision' is nil."
   :type 'directory)
 
 (defcustom lispm-shrdlu-speed 2500
@@ -127,23 +129,40 @@ Sentences menu holds the dialogue of 1972.\n\n"
   (expand-file-name (or file "")
                     (expand-file-name "src/" lispm-shrdlu-source-directory)))
 
+(defun lispm-shrdlu--git-environment ()
+  "Return `process-environment' without the variables that would point git
+at another repository, as a hook running these commands may set."
+  (seq-remove (lambda (variable)
+                (string-match-p "\\`GIT_\\(?:DIR\\|WORK_TREE\\|INDEX_FILE\\|COMMON_DIR\\|OBJECT_DIRECTORY\\)="
+                                variable))
+              process-environment))
+
+(defun lispm-shrdlu--marker ()
+  "Return the file saying the checkout is one fetching made."
+  (expand-file-name ".git/lispm-shrdlu" lispm-shrdlu-source-directory))
+
 (defun lispm-shrdlu--fetched-p ()
   "Return non-nil when SHRDLU's Common Lisp is there, at the revision."
   (and (file-exists-p (lispm-shrdlu--source "plnr.lisp"))
        (or (null lispm-shrdlu-source-revision)
-           (equal lispm-shrdlu-source-revision
-                  (with-temp-buffer
-                    (let ((default-directory lispm-shrdlu-source-directory))
-                      (and (eq 0 (ignore-errors
-                                   (call-process "git" nil t nil "rev-parse" "HEAD")))
-                           (string-trim (buffer-string)))))))))
+           (and (file-directory-p (expand-file-name ".git" lispm-shrdlu-source-directory))
+                (equal lispm-shrdlu-source-revision
+                       (with-temp-buffer
+                         (let ((default-directory (file-name-as-directory
+                                                   (expand-file-name lispm-shrdlu-source-directory)))
+                               (process-environment (lispm-shrdlu--git-environment)))
+                           (and (eq 0 (ignore-errors
+                                        (call-process "git" nil t nil "rev-parse" "HEAD")))
+                                (string-trim (buffer-string))))))))))
 
 (defun lispm-shrdlu--run-git (commands done)
   "Run the git COMMANDS, lists of arguments, one after the other, then
 call DONE with nil, or with what git said when one failed."
   (if (null commands)
       (funcall done nil)
-    (let ((output (generate-new-buffer " *shrdlu git*")))
+    (let ((output (generate-new-buffer " *shrdlu git*"))
+          (default-directory lispm-shrdlu-directory)
+          (process-environment (lispm-shrdlu--git-environment)))
       (make-process
        :name "shrdlu-git"
        :buffer output
@@ -157,29 +176,48 @@ call DONE with nil, or with what git said when one failed."
                            (lispm-shrdlu--run-git (cdr commands) done)
                          (funcall done (if (string-empty-p said) "git failed" said))))))))))
 
+(defvar lispm-shrdlu--fetch-waiting nil
+  "While a fetch runs, the functions to call when it ends, newest first.")
+
 (defun lispm-shrdlu--fetch (done)
   "Fetch SHRDLU's Common Lisp unless it is there; then call DONE with nil,
-or with what went wrong."
-  (cond
-   ((lispm-shrdlu--fetched-p) (funcall done nil))
-   ((null lispm-shrdlu-source-revision)
-    (funcall done (format "%s holds no SHRDLU" lispm-shrdlu-source-directory)))
-   ((not (executable-find "git"))
-    (funcall done "SHRDLU needs git to fetch its Common Lisp"))
-   (t
-    (let ((directory (expand-file-name lispm-shrdlu-source-directory)))
+or with what went wrong.  While a fetch runs, DONE waits for it."
+  (let ((directory (expand-file-name lispm-shrdlu-source-directory)))
+    (cond
+     (lispm-shrdlu--fetch-waiting (push done lispm-shrdlu--fetch-waiting))
+     ((lispm-shrdlu--fetched-p) (funcall done nil))
+     ((null lispm-shrdlu-source-revision)
+      (funcall done (format "%s holds no SHRDLU" directory)))
+     ((not (executable-find "git"))
+      (funcall done "SHRDLU needs git to fetch its Common Lisp"))
+     ((and (file-exists-p (expand-file-name ".git" directory))
+           (not (file-exists-p (lispm-shrdlu--marker))))
+      (funcall done (format "%s is a checkout of its own: set lispm-shrdlu-source-revision to nil to run it as it is"
+                            directory)))
+     (t
+      (setq lispm-shrdlu--fetch-waiting (list done))
       (make-directory directory t)
       (lispm-shrdlu--run-git
        `(("init" "-q" ,directory)
          ("-C" ,directory "fetch" "-q" "--depth" "1"
           ,lispm-shrdlu-source-url ,lispm-shrdlu-source-revision)
          ("-C" ,directory "-c" "advice.detachedHead=false" "checkout" "-q" "FETCH_HEAD"))
-       done)))))
+       (lambda (problem)
+         (unless problem
+           (with-temp-file (lispm-shrdlu--marker)
+             (insert "Fetched by lispm-shrdlu.el, which may move it to another revision.\n")))
+         (let ((waiting (reverse lispm-shrdlu--fetch-waiting)))
+           (setq lispm-shrdlu--fetch-waiting nil)
+           (dolist (function waiting)
+             (funcall function problem)))))))))
 
 ;;;; The dialogue
 
 (defvar-local lispm-shrdlu--pending ""
-  "The start of a report whose line has not come whole.")
+  "The start of a line not come whole: a report, or perhaps READY1.")
+
+(defvar-local lispm-shrdlu--starting nil
+  "The start under way while SHRDLU is fetched; a newer start replaces it.")
 
 (defun lispm-shrdlu--prompt (line)
   "Return the prompt to show for LINE of SHRDLU's, or nil."
@@ -207,7 +245,10 @@ out of it to the drawing.  READY1 and READY2 become prompts."
                    (push (lispm-shrdlu--prompt line) shown))
                   (t (push line shown)))))
         (let ((rest (substring text start)))
-          (if (string-prefix-p "\036" rest)
+          (if (or (string-prefix-p "\036" rest)
+                  ;; READY1 comes in pieces at times: wait for its line.
+                  (and (not (string-empty-p rest))
+                       (or (string-prefix-p rest "READY1 ") (string-prefix-p rest "READY2 "))))
               (setq lispm-shrdlu--pending rest)
             (push rest shown)))
         (let ((output (lispm-shrdlu--tidy (apply #'concat (nreverse shown))
@@ -262,31 +303,36 @@ follows when it was there."
 
 (defun lispm-shrdlu--start (buffer)
   "Start a dialogue with SHRDLU in BUFFER, fetching it first if need be."
-  (with-current-buffer buffer
-    (let ((inhibit-read-only t))
-      (erase-buffer)
-      (insert lispm-shrdlu-introduction)))
-  (lispm-shrdlu--world-reset)
-  (unless (lispm-shrdlu--fetched-p)
-    (lispm-shrdlu--say buffer "Fetching SHRDLU's Common Lisp...\n"))
-  (lispm-shrdlu--fetch
-   (lambda (problem)
-     (cond
-      ((not (buffer-live-p buffer)))
-      (problem
-       (lispm-shrdlu--say buffer (format "SHRDLU could not be fetched: %s\n" problem)))
-      (t
-       (lispm-shrdlu--say buffer "Loading SHRDLU takes a few seconds...\n")
-       (let* ((process-environment
-               (cons (concat "LISPM_SHRDLU_SOURCE=" (file-name-as-directory (lispm-shrdlu--source)))
-                     process-environment))
-              (process (emacs-cl-start
-                        buffer :name "shrdlu"
-                        :load (list (expand-file-name "lisp/shrdlu.lisp" lispm-shrdlu-directory))
-                        :package "SHRDLU"
-                        :eval '("(lispm-shrdlu-run)"))))
-         (set-process-filter process #'lispm-shrdlu--filter)
-         (set-process-sentinel process #'lispm-shrdlu--sentinel)))))))
+  (let ((start (list 'start)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert lispm-shrdlu-introduction))
+      (setq lispm-shrdlu--pending ""
+            lispm-shrdlu--starting start))
+    (lispm-shrdlu--world-reset)
+    (unless (lispm-shrdlu--fetched-p)
+      (lispm-shrdlu--say buffer "Fetching SHRDLU's Common Lisp...\n"))
+    (lispm-shrdlu--fetch
+     (lambda (problem)
+       (when (and (buffer-live-p buffer)
+                  (eq start (buffer-local-value 'lispm-shrdlu--starting buffer)))
+         (with-current-buffer buffer
+           (setq lispm-shrdlu--starting nil))
+         (if problem
+             (lispm-shrdlu--say buffer (format "SHRDLU could not be fetched: %s\n" problem))
+           (lispm-shrdlu--say buffer "Loading SHRDLU takes a few seconds...\n")
+           (let* ((default-directory lispm-shrdlu-directory)
+                  (process-environment
+                   (cons (concat "LISPM_SHRDLU_SOURCE=" (file-name-as-directory (lispm-shrdlu--source)))
+                         process-environment))
+                  (process (emacs-cl-start
+                            buffer :name "shrdlu"
+                            :load (list (expand-file-name "lisp/shrdlu.lisp" lispm-shrdlu-directory))
+                            :package "SHRDLU"
+                            :eval '("(lispm-shrdlu-run)"))))
+             (set-process-filter process #'lispm-shrdlu--filter)
+             (set-process-sentinel process #'lispm-shrdlu--sentinel))))))))
 
 (defun lispm-shrdlu-running-p ()
   "Return non-nil while SHRDLU runs in the dialogue's buffer."
@@ -309,7 +355,8 @@ follows when it was there."
   "Talk with SHRDLU, going on with the dialogue under way."
   (interactive)
   (let ((buffer (lispm-shrdlu--buffers)))
-    (unless (get-buffer-process buffer)
+    (unless (or (get-buffer-process buffer)
+                (buffer-local-value 'lispm-shrdlu--starting buffer))
       (lispm-shrdlu--start buffer))
     (pop-to-buffer-same-window buffer)
     (lispm-shrdlu--show-world (selected-window))))
@@ -410,8 +457,7 @@ it was to where it goes.")
 
 (defun lispm-shrdlu--world-reset ()
   "Forget the world: it is reported again as SHRDLU starts."
-  (when lispm-shrdlu--timer
-    (cancel-timer lispm-shrdlu--timer))
+  (lispm-shrdlu--stop)
   (setq lispm-shrdlu--objects nil lispm-shrdlu--hand '(40 0 0) lispm-shrdlu--held nil
         lispm-shrdlu--queue nil lispm-shrdlu--motion nil lispm-shrdlu--blinking nil
         lispm-shrdlu--timer nil)
@@ -419,15 +465,17 @@ it was to where it goes.")
 
 (defun lispm-shrdlu--report (line)
   "Take LINE, a report of SHRDLU's hand, to the drawing."
-  (let ((report (ignore-errors (car (read-from-string line)))))
-    (cond
-     ((plist-get report :kinds)
-      (setq lispm-shrdlu--kinds
-            (mapcar (lambda (kind) (cons (lispm-shrdlu--name (car kind)) (cdr kind)))
-                    (plist-get report :kinds))))
-     ((plist-get report :event)
-      (setq lispm-shrdlu--queue (nconc lispm-shrdlu--queue (list report)))
-      (lispm-shrdlu--animate)))))
+  ;; A report SHRDLU garbled costs the drawing that report only.
+  (ignore-errors
+    (let ((report (car (read-from-string line))))
+      (cond
+       ((plist-get report :kinds)
+        (setq lispm-shrdlu--kinds
+              (mapcar (lambda (kind) (cons (lispm-shrdlu--name (car kind)) (cdr kind)))
+                      (plist-get report :kinds))))
+       ((plist-get report :event)
+        (setq lispm-shrdlu--queue (nconc lispm-shrdlu--queue (list report)))
+        (lispm-shrdlu--animate))))))
 
 (defun lispm-shrdlu--name (name)
   "Return NAME, a keyword or a string, as a string without its colon."
@@ -496,28 +544,39 @@ centre of its top."
      (setq lispm-shrdlu--blinking (cons (plist-get report :object) (+ now 0.9)))
      (setq lispm-shrdlu--motion (list now 0.9 (list lispm-shrdlu--hand))))))
 
+(defun lispm-shrdlu--stop ()
+  "Stop the timer drawing moves."
+  (when lispm-shrdlu--timer
+    (cancel-timer lispm-shrdlu--timer)
+    (setq lispm-shrdlu--timer nil)))
+
 (defun lispm-shrdlu--step ()
-  "Draw the world as it is now, going on with the reports."
-  (let ((now (float-time)))
-    (while (and (null lispm-shrdlu--motion) lispm-shrdlu--queue)
-      (lispm-shrdlu--begin (pop lispm-shrdlu--queue) now))
-    (when lispm-shrdlu--motion
-      (pcase-let ((`(,start ,duration ,points) lispm-shrdlu--motion))
-        (let ((fraction (min 1.0 (/ (- now start) duration))))
-          (setq lispm-shrdlu--hand
-                (lispm-shrdlu--along points (* fraction (lispm-shrdlu--path-length points))))
-          (lispm-shrdlu--carry)
-          (when (>= fraction 1.0)
-            (setq lispm-shrdlu--hand (car (last points))
-                  lispm-shrdlu--motion nil)
-            (lispm-shrdlu--carry)))))
-    (when (and lispm-shrdlu--blinking (> now (cdr lispm-shrdlu--blinking)))
-      (setq lispm-shrdlu--blinking nil))
-    (lispm-shrdlu--render)
-    (unless (or lispm-shrdlu--motion lispm-shrdlu--queue lispm-shrdlu--blinking)
-      (when lispm-shrdlu--timer
-        (cancel-timer lispm-shrdlu--timer)
-        (setq lispm-shrdlu--timer nil)))))
+  "Draw the world as it is now, going on with the reports.
+An error stops the drawing, rather than coming back every step."
+  (condition-case err
+      (let ((now (float-time)))
+        (while (and (null lispm-shrdlu--motion) lispm-shrdlu--queue)
+          (lispm-shrdlu--begin (pop lispm-shrdlu--queue) now))
+        (when lispm-shrdlu--motion
+          (pcase-let ((`(,start ,duration ,points) lispm-shrdlu--motion))
+            ;; Wall-clock time may go back: keep within the move.
+            (let ((fraction (max 0.0 (min 1.0 (/ (- now start) duration)))))
+              (setq lispm-shrdlu--hand
+                    (lispm-shrdlu--along points (* fraction (lispm-shrdlu--path-length points))))
+              (lispm-shrdlu--carry)
+              (when (>= fraction 1.0)
+                (setq lispm-shrdlu--hand (car (last points))
+                      lispm-shrdlu--motion nil)
+                (lispm-shrdlu--carry)))))
+        (when (and lispm-shrdlu--blinking (> now (cdr lispm-shrdlu--blinking)))
+          (setq lispm-shrdlu--blinking nil))
+        (lispm-shrdlu--render)
+        (unless (or lispm-shrdlu--motion lispm-shrdlu--queue lispm-shrdlu--blinking)
+          (lispm-shrdlu--stop)))
+    (error
+     (lispm-shrdlu--stop)
+     (setq lispm-shrdlu--queue nil lispm-shrdlu--motion nil lispm-shrdlu--blinking nil)
+     (message "SHRDLU's drawing stopped: %s" (error-message-string err)))))
 
 (defun lispm-shrdlu--animate ()
   "Draw the reports waiting, moving the hand as time passes."
@@ -630,7 +689,8 @@ OPACITY opaque, fully by default."
       (let ((inhibit-read-only t)
             (window (get-buffer-window buffer t)))
         (erase-buffer)
-        (if (not (and window (display-images-p) lispm-shrdlu--objects))
+        (if (not (and window lispm-shrdlu--objects (display-images-p)
+                      (image-type-available-p 'svg)))
             (insert (if lispm-shrdlu--objects "" "The blocks world appears once SHRDLU has loaded.\n"))
           (pcase-let* ((`(,_ ,_ ,vw ,vh) lispm-shrdlu--view)
                        (room-width (max 50 (- (window-body-width window t) 4)))
