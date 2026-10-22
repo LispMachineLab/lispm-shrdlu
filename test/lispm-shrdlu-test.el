@@ -214,33 +214,48 @@ waited for; return non-nil when it came within SECONDS."
     (when found (set-marker lispm-shrdlu-test--from found))
     found))
 
+(defmacro lispm-shrdlu-test-dialogue (&rest body)
+  "Run BODY in a new dialogue with SHRDLU, once it asks for a sentence."
+  (declare (indent 0))
+  `(progn
+     (skip-unless (file-exists-p (expand-file-name "src/plnr.lisp" lispm-shrdlu-test-source)))
+     (let ((emacs-cl-build-directory lispm-shrdlu-test-build)
+           (lispm-shrdlu-source-directory lispm-shrdlu-test-source)
+           (lispm-shrdlu-source-revision nil)
+           (lispm-shrdlu-speed 100000))
+       (save-window-excursion
+         (lispm-shrdlu-new)
+         (with-current-buffer lispm-shrdlu-buffer-name
+           (setq lispm-shrdlu-test--from (copy-marker (point-min)))
+           (unwind-protect
+               (progn
+                 (should (lispm-shrdlu-test-wait-for "^> "))
+                 ,@body)
+             (let ((process (get-buffer-process (current-buffer))))
+               (when process (set-process-sentinel process #'ignore) (delete-process process)))))))))
+
 (ert-deftest lispm-shrdlu-dialogue ()
   "SHRDLU picks up a big red block, clearing it first, and says what the
 box contains; the drawing follows the hand."
-  (skip-unless (file-exists-p (expand-file-name "src/plnr.lisp" lispm-shrdlu-test-source)))
-  (let ((emacs-cl-build-directory lispm-shrdlu-test-build)
-        (lispm-shrdlu-source-directory lispm-shrdlu-test-source)
-        (lispm-shrdlu-source-revision nil)
-        (lispm-shrdlu-speed 100000))
-    (save-window-excursion
-      (lispm-shrdlu-new)
-      (with-current-buffer lispm-shrdlu-buffer-name
-        (setq lispm-shrdlu-test--from (copy-marker (point-min)))
-        (unwind-protect
-            (progn
-              (should (lispm-shrdlu-test-wait-for "^> "))
-              (should (lispm-shrdlu--place :b6))
-              (lispm-shrdlu-say "pick up a big red block.")
-              (should (lispm-shrdlu-test-wait-for "^Ok\\."))
-              (should (lispm-shrdlu-test-wait-for "^> "))
-              (should (lispm-shrdlu-test-settle))
-              (should (equal (lispm-shrdlu--name lispm-shrdlu--held) "b6"))
-              (should (equal lispm-shrdlu--hand '(100 450 1000)))
-              (lispm-shrdlu-say "what does the box contain?")
-              (should (lispm-shrdlu-test-wait-for "^The blue pyramid\\."))
-              (should-not (string-search "\036" (buffer-string)))
-              (should-not (string-search "READY" (buffer-string))))
-          (let ((process (get-buffer-process (current-buffer))))
-            (when process (set-process-sentinel process #'ignore) (delete-process process))))))))
+  (lispm-shrdlu-test-dialogue
+    (should (lispm-shrdlu--place :b6))
+    (lispm-shrdlu-say "pick up a big red block.")
+    (should (lispm-shrdlu-test-wait-for "^Ok\\."))
+    (should (lispm-shrdlu-test-wait-for "^> "))
+    (should (lispm-shrdlu-test-settle))
+    (should (equal (lispm-shrdlu--name lispm-shrdlu--held) "b6"))
+    (should (equal lispm-shrdlu--hand '(100 450 1000)))
+    (lispm-shrdlu-say "what does the box contain?")
+    (should (lispm-shrdlu-test-wait-for "^The blue pyramid\\."))
+    (should-not (string-search "\036" (buffer-string)))
+    (should-not (string-search "READY" (buffer-string)))))
+
+(ert-deftest lispm-shrdlu-dialogue-can ()
+  "Asked what can be, SHRDLU says yes as Winograd's dialogue has it,
+with no comma before the full stop."
+  (lispm-shrdlu-test-dialogue
+    (lispm-shrdlu-say "can a pyramid be supported by a block?")
+    (should (lispm-shrdlu-test-wait-for "^\\(.*[^ ]\\) *\n\n> "))
+    (should (equal (match-string 1) "Yes."))))
 
 ;;; lispm-shrdlu-test.el ends here
