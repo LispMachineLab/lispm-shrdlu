@@ -285,6 +285,8 @@ dialogue cuts short gets what went wrong."
     (should (equal (lispm-shrdlu-test-answers 'lispm-shrdlu-test--answers 2)
                    '(("Ok.") ("The blue pyramid."))))
     (should (string-search "> pick up a big red block.\n" (buffer-string)))
+    ;; The dialogue's window follows it, as when the user types.
+    (should (= (window-point (get-buffer-window (current-buffer))) (point-max)))
     (should lispm-shrdlu--ready)
     (should (lispm-shrdlu-test-settle))
     (should (equal (lispm-shrdlu--name lispm-shrdlu--held) "b6"))

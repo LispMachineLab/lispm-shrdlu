@@ -452,17 +452,26 @@ by `lispm-shrdlu-ask' its answer, and say the next one."
   (let ((process (get-buffer-process (current-buffer))))
     (when (and lispm-shrdlu--asks lispm-shrdlu--ready (not lispm-shrdlu--asked)
                (process-live-p process))
-      (pcase-let ((`(,sentence . ,callback) (pop lispm-shrdlu--asks))
-                  (typed (buffer-substring-no-properties (process-mark process) (point-max))))
-        (save-excursion
-          (goto-char (process-mark process))
-          (delete-region (point) (point-max))
-          (insert sentence)
-          (comint-send-input)
-          (setq lispm-shrdlu--asked (cons (copy-marker (process-mark process)) callback))
-          ;; What the user was typing stays theirs, after the sentence.
-          (goto-char (point-max))
-          (insert typed))))))
+      (pcase-let* ((`(,sentence . ,callback) (pop lispm-shrdlu--asks))
+                   (mark (process-mark process))
+                   (typed (buffer-substring-no-properties mark (point-max)))
+                   (here (point-marker))
+                   ;; Point, and windows, at the prompt follow the dialogue.
+                   (follow (>= (point) mark))
+                   (windows (seq-filter (lambda (window) (>= (window-point window) mark))
+                                        (get-buffer-window-list (current-buffer) nil t))))
+        (goto-char mark)
+        (delete-region (point) (point-max))
+        (insert sentence)
+        (comint-send-input)
+        (setq lispm-shrdlu--asked (cons (copy-marker (process-mark process)) callback))
+        ;; What the user was typing stays theirs, after the sentence.
+        (goto-char (point-max))
+        (insert typed)
+        (goto-char (if follow (point-max) here))
+        (set-marker here nil)
+        (dolist (window windows)
+          (set-window-point window (point-max)))))))
 
 (defun lispm-shrdlu--fail-asks (problem)
   "Tell the callers of `lispm-shrdlu-ask' waiting in this buffer PROBLEM."
