@@ -37,7 +37,9 @@
 ;;
 ;; `lispm-shrdlu' opens the dialogue above a drawing of the blocks
 ;; world, where the hand moves as SHRDLU carries out a command.  The
-;; Sentences menu offers the lines of the 1972 dialogue.  The first
+;; Sentences menu offers the lines of the 1972 dialogue.  Programs, such
+;; as an agent's skill, talk with SHRDLU through `lispm-shrdlu-ask',
+;; which says a sentence in the dialogue and gives back SHRDLU's answer.  The first
 ;; start fetches SHRDLU's Common Lisp, at `lispm-shrdlu-source-revision',
 ;; into `lispm-shrdlu-source-directory' with git.  In LispM Desktop it
 ;; is an application of the App Store.
@@ -219,6 +221,17 @@ or with what went wrong.  While a fetch runs, DONE waits for it."
 (defvar-local lispm-shrdlu--starting nil
   "The start under way while SHRDLU is fetched; a newer start replaces it.")
 
+(defvar-local lispm-shrdlu--ready nil
+  "Non-nil while SHRDLU waits for a sentence and none is typed yet.")
+
+(defvar-local lispm-shrdlu--asks nil
+  "The sentences of `lispm-shrdlu-ask' not said yet, the oldest first:
+\(SENTENCE . CALLBACK) each.")
+
+(defvar-local lispm-shrdlu--asked nil
+  "The sentence of `lispm-shrdlu-ask' said, while SHRDLU answers:
+\(START . CALLBACK), START a marker where the answer begins.")
+
 (defun lispm-shrdlu--prompt (line)
   "Return the prompt to show for LINE of SHRDLU's, or nil."
   (cond ((string-match-p "\\`READY1 *\n\\'" line) "> ")
@@ -231,7 +244,8 @@ out of it to the drawing.  READY1 and READY2 become prompts."
     (with-current-buffer (process-buffer process)
       (let ((text (concat lispm-shrdlu--pending string))
             (start 0)
-            (shown nil))
+            (shown nil)
+            (prompted nil))
         (setq lispm-shrdlu--pending "")
         (while (string-match "\n" text start)
           (let ((line (substring text start (match-end 0))))
@@ -239,6 +253,7 @@ out of it to the drawing.  READY1 and READY2 become prompts."
             (cond ((string-prefix-p "\036" line)
                    (lispm-shrdlu--report (substring line 1 -1)))
                   ((lispm-shrdlu--prompt line)
+                   (setq prompted t)
                    ;; A prompt starts its own line, after one blank line.
                    (while (and shown (equal (car shown) "\n")) (pop shown))
                    (push "\n" shown)
@@ -254,7 +269,9 @@ out of it to the drawing.  READY1 and READY2 become prompts."
         (let ((output (lispm-shrdlu--tidy (apply #'concat (nreverse shown))
                                           (lispm-shrdlu--blank-lines-before process))))
           (unless (string-empty-p output)
-            (comint-output-filter process output)))))))
+            (comint-output-filter process output)))
+        (when prompted
+          (lispm-shrdlu--prompted process))))))
 
 (defun lispm-shrdlu--blank-lines-before (process)
   "Return how many newlines end the dialogue before PROCESS writes, at most 2."
@@ -282,7 +299,8 @@ ending the text before it.  SHRDLU's PRINT and TERPRI leave many."
         (save-excursion
           (goto-char (point-max))
           (insert (format "\n\nSHRDLU stopped (%s).  C-c C-n starts again.\n"
-                          (process-exit-status process))))))))
+                          (process-exit-status process)))))
+      (lispm-shrdlu--fail-asks "SHRDLU stopped"))))
 
 (defun lispm-shrdlu--say (buffer text)
   "Insert TEXT in BUFFER, the dialogue, where SHRDLU writes next; point
@@ -309,7 +327,9 @@ follows when it was there."
         (erase-buffer)
         (insert lispm-shrdlu-introduction))
       (setq lispm-shrdlu--pending ""
-            lispm-shrdlu--starting start))
+            lispm-shrdlu--starting start
+            lispm-shrdlu--ready nil)
+      (lispm-shrdlu--fail-asks "A new dialogue began"))
     (lispm-shrdlu--world-reset)
     (unless (lispm-shrdlu--fetched-p)
       (lispm-shrdlu--say buffer "Fetching SHRDLU's Common Lisp...\n"))
@@ -320,7 +340,10 @@ follows when it was there."
          (with-current-buffer buffer
            (setq lispm-shrdlu--starting nil))
          (if problem
-             (lispm-shrdlu--say buffer (format "SHRDLU could not be fetched: %s\n" problem))
+             (progn
+               (lispm-shrdlu--say buffer (format "SHRDLU could not be fetched: %s\n" problem))
+               (with-current-buffer buffer
+                 (lispm-shrdlu--fail-asks (format "SHRDLU could not be fetched: %s" problem))))
            (lispm-shrdlu--say buffer "Loading SHRDLU takes a few seconds...\n")
            (let* ((default-directory lispm-shrdlu-directory)
                   (process-environment
@@ -384,6 +407,79 @@ follows when it was there."
       (insert sentence)
       (comint-send-input))))
 
+;;;; For programs
+
+(defun lispm-shrdlu-ask (sentence callback)
+  "Say SENTENCE to SHRDLU in the dialogue, and call CALLBACK with its
+answer, a string, once SHRDLU waits for the next sentence.  SHRDLU
+starts first if it is not running, and a sentence waits for those asked
+before it.  If SHRDLU stops, cannot start, or a new dialogue begins
+before it answers, CALLBACK gets nil and, second, what went wrong.
+SENTENCE gets a full stop unless it ends with one, a question mark or
+an exclamation mark, as SHRDLU waits for one; a question needs its
+question mark.  The hand's moves
+are drawn as SHRDLU reports them, which goes on after it answers.
+Return the dialogue's buffer."
+  (let ((buffer (lispm-shrdlu--buffers))
+        (sentence (string-trim sentence)))
+    (unless (string-match-p "[.?!]\\'" sentence)
+      (setq sentence (concat sentence ".")))
+    (with-current-buffer buffer
+      (unless (or (get-buffer-process buffer) lispm-shrdlu--starting)
+        (lispm-shrdlu--start buffer))
+      (setq lispm-shrdlu--asks (nconc lispm-shrdlu--asks (list (cons sentence callback))))
+      (lispm-shrdlu--next))
+    buffer))
+
+(defun lispm-shrdlu--prompted (process)
+  "SHRDLU asks for a sentence in PROCESS's buffer: give the sentence said
+by `lispm-shrdlu-ask' its answer, and say the next one."
+  (with-current-buffer (process-buffer process)
+    (setq lispm-shrdlu--ready t)
+    (when-let* ((asked lispm-shrdlu--asked))
+      (setq lispm-shrdlu--asked nil)
+      (let ((answer (string-trim
+                     (replace-regexp-in-string
+                      "\n*[>…] \\'" ""
+                      (buffer-substring-no-properties (car asked) (process-mark process))))))
+        (set-marker (car asked) nil)
+        (with-demoted-errors "Answering a sentence asked of SHRDLU: %S"
+          (funcall (cdr asked) answer))))
+    (lispm-shrdlu--next)))
+
+(defun lispm-shrdlu--next ()
+  "Say the next sentence of `lispm-shrdlu-ask', if SHRDLU waits for one."
+  (let ((process (get-buffer-process (current-buffer))))
+    (when (and lispm-shrdlu--asks lispm-shrdlu--ready (not lispm-shrdlu--asked)
+               (process-live-p process))
+      (pcase-let ((`(,sentence . ,callback) (pop lispm-shrdlu--asks))
+                  (typed (buffer-substring-no-properties (process-mark process) (point-max))))
+        (save-excursion
+          (goto-char (process-mark process))
+          (delete-region (point) (point-max))
+          (insert sentence)
+          (comint-send-input)
+          (setq lispm-shrdlu--asked (cons (copy-marker (process-mark process)) callback))
+          ;; What the user was typing stays theirs, after the sentence.
+          (goto-char (point-max))
+          (insert typed))))))
+
+(defun lispm-shrdlu--fail-asks (problem)
+  "Tell the callers of `lispm-shrdlu-ask' waiting in this buffer PROBLEM."
+  (let ((callbacks (append (and lispm-shrdlu--asked (list (cdr lispm-shrdlu--asked)))
+                           (mapcar #'cdr lispm-shrdlu--asks))))
+    (when lispm-shrdlu--asked
+      (set-marker (car lispm-shrdlu--asked) nil))
+    (setq lispm-shrdlu--asked nil lispm-shrdlu--asks nil)
+    (dolist (callback callbacks)
+      (with-demoted-errors "Telling what SHRDLU was asked: %S"
+        (funcall callback nil problem)))))
+
+(defun lispm-shrdlu--input-sent (_input)
+  "SHRDLU has a sentence: it does not wait for one until it asks again.
+This is one of `comint-input-filter-functions' of the dialogue."
+  (setq lispm-shrdlu--ready nil))
+
 (defun lispm-shrdlu--sentences-menu (_menu)
   "Return the items of the Sentences menu."
   (mapcar (lambda (sentence)
@@ -426,6 +522,7 @@ Type a sentence and Return.
 \\{lispm-shrdlu-mode-map}"
   (setq-local comint-prompt-regexp "^[>…] ")
   (setq-local comint-prompt-read-only t)
+  (add-hook 'comint-input-filter-functions #'lispm-shrdlu--input-sent nil t)
   (add-hook 'window-buffer-change-functions #'lispm-shrdlu--keep-world nil t))
 
 ;;;; The blocks world

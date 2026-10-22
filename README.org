@@ -29,6 +29,14 @@ The Sentences menu holds the lines of the dialogue Winograd published in 1972.  
 survives is incomplete: SHRDLU has forgotten some words of that dialogue, as =own= and =mine=,
 and answers some questions as it did not then.
 
+* For programs
+
+~(lispm-shrdlu-ask SENTENCE CALLBACK)~ says ~SENTENCE~ to SHRDLU in the dialogue, starting it
+first if need be, and calls ~CALLBACK~ with SHRDLU's answer once it waits for the next sentence;
+sentences asked together are said one after the other.  If SHRDLU stops, cannot start or a new
+dialogue begins first, ~CALLBACK~ gets nil and what went wrong.  LispM Agent's skill for SHRDLU,
+in the App Store's catalog, is made of it.
+
 * How it works
 
 This runs the Common Lisp port of the 1990s, revived by Tom Sgouros as [[https://github.com/tsgouros/www-shrdlu][www-shrdlu]], unchanged
