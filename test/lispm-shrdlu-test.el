@@ -258,4 +258,86 @@ with no comma before the full stop."
     (should (lispm-shrdlu-test-wait-for "^\\(.*[^ ]\\) *\n\n> "))
     (should (equal (match-string 1) "Yes."))))
 
+(defun lispm-shrdlu-test-answers (answers count &optional seconds)
+  "Wait until the list in the symbol ANSWERS holds COUNT answers; return
+them, the first first, or nil when they did not come within SECONDS."
+  (let ((end (+ (float-time) (or seconds 120))))
+    (while (and (< (length (symbol-value answers)) count) (< (float-time) end))
+      (accept-process-output nil 0.1))
+    (and (= (length (symbol-value answers)) count) (reverse (symbol-value answers)))))
+
+(defvar lispm-shrdlu-test--answers nil
+  "What `lispm-shrdlu-ask' gave back, the last first.")
+
+(defun lispm-shrdlu-test-answer (&rest answer)
+  "Keep ANSWER, the arguments a caller of `lispm-shrdlu-ask' gets."
+  (push answer lispm-shrdlu-test--answers))
+
+(ert-deftest lispm-shrdlu-ask ()
+  "A program asks SHRDLU and gets its answers, one sentence after the
+other, a full stop added where it lacks one; the dialogue shows them.  A
+sentence asked before SHRDLU is ready waits for it, and one a new
+dialogue cuts short gets what went wrong."
+  (lispm-shrdlu-test-dialogue
+    (setq lispm-shrdlu-test--answers nil)
+    (lispm-shrdlu-ask "pick up a big red block" #'lispm-shrdlu-test-answer)
+    (lispm-shrdlu-ask "what does the box contain?" #'lispm-shrdlu-test-answer)
+    (should (equal (lispm-shrdlu-test-answers 'lispm-shrdlu-test--answers 2)
+                   '(("Ok.") ("The blue pyramid."))))
+    (should (string-search "> pick up a big red block.\n" (buffer-string)))
+    ;; The dialogue's window follows it, as when the user types.
+    (should (= (window-point (get-buffer-window (current-buffer))) (point-max)))
+    (should lispm-shrdlu--ready)
+    (should (lispm-shrdlu-test-settle))
+    (should (equal (lispm-shrdlu--name lispm-shrdlu--held) "b6"))
+    (setq lispm-shrdlu-test--answers nil)
+    (lispm-shrdlu-ask "what does the box contain?" #'lispm-shrdlu-test-answer)
+    (lispm-shrdlu-new)
+    (should (equal lispm-shrdlu-test--answers '((nil "A new dialogue began"))))
+    (setq lispm-shrdlu-test--answers nil)
+    (should-not lispm-shrdlu--ready)
+    (lispm-shrdlu-ask "can a pyramid be supported by a block?" #'lispm-shrdlu-test-answer)
+    (should (equal (car (lispm-shrdlu-test-answers 'lispm-shrdlu-test--answers 1)) '("Yes.")))))
+
+(ert-deftest lispm-shrdlu-ask-cannot-start ()
+  "Asked while SHRDLU cannot start, the caller is told at once, the
+sentence not left waiting; a sentence holding SHRDLU's own commands is
+an error."
+  (let* ((empty (make-temp-file "lispm-shrdlu-test-empty" t))
+         (lispm-shrdlu-source-directory empty)
+         (lispm-shrdlu-source-revision nil)
+         (answers nil))
+    (unwind-protect
+        (save-window-excursion
+          (lispm-shrdlu-ask "pick up a big red block" (lambda (&rest answer) (push answer answers)))
+          (should (equal (length answers) 1))
+          (should-not (car (car answers)))
+          (should (string-match-p "holds no SHRDLU" (cadr (car answers))))
+          (with-current-buffer lispm-shrdlu-buffer-name
+            (should-not lispm-shrdlu--asks)
+            (should-not lispm-shrdlu--asked))
+          (should-error (lispm-shrdlu-ask "pick up ~ a block" #'ignore))
+          (should-error (lispm-shrdlu-ask "@ the box" #'ignore)))
+      (dolist (name (list lispm-shrdlu-buffer-name lispm-shrdlu-world-buffer-name))
+        (when (get-buffer name) (kill-buffer name)))
+      (delete-directory empty t))))
+
+(ert-deftest lispm-shrdlu-ask-between-the-users ()
+  "A sentence the user sends while SHRDLU answers one asked is answered
+in its turn: the next one asked waits for it, and each caller gets its
+own answer.  Closing the dialogue tells those still waiting."
+  (lispm-shrdlu-test-dialogue
+    (setq lispm-shrdlu-test--answers nil)
+    (lispm-shrdlu-ask "pick up a big red block" #'lispm-shrdlu-test-answer)
+    (lispm-shrdlu-say "what does the box contain?")
+    (lispm-shrdlu-ask "can a pyramid be supported by a block?" #'lispm-shrdlu-test-answer)
+    (should (equal (lispm-shrdlu-test-answers 'lispm-shrdlu-test--answers 2)
+                   '(("Ok.") ("Yes."))))
+    ;; The one asked after the user's went to SHRDLU once it answered theirs.
+    (should (string-match-p "The blue pyramid\\. *\n\n> can a pyramid" (buffer-string)))
+    (setq lispm-shrdlu-test--answers nil)
+    (lispm-shrdlu-ask "what does the box contain?" #'lispm-shrdlu-test-answer)
+    (kill-buffer (current-buffer))
+    (should (equal lispm-shrdlu-test--answers '((nil "The dialogue with SHRDLU was closed"))))))
+
 ;;; lispm-shrdlu-test.el ends here
