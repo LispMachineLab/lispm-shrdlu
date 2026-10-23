@@ -33,8 +33,9 @@ and answers some questions as it did not then.
 
 ~(lispm-shrdlu-ask SENTENCE CALLBACK)~ says ~SENTENCE~ to SHRDLU in the dialogue, starting it
 first if need be, and calls ~CALLBACK~ with SHRDLU's answer once it waits for the next sentence;
-sentences asked together are said one after the other.  If SHRDLU stops, cannot start or a new
-dialogue begins first, ~CALLBACK~ gets nil and what went wrong.  LispM Agent's skill for SHRDLU,
+sentences asked together are said one after the other, and after any the user sent.  If SHRDLU
+stops, cannot start, the dialogue is closed or a new one begins first, ~CALLBACK~ gets nil and what
+went wrong.  A sentence may hold no ~~~ or ~@~, which SHRDLU reads as commands of its own.  LispM Agent's skill for SHRDLU,
 in the App Store's catalog, is made of it.
 
 * How it works
