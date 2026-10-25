@@ -18,6 +18,11 @@ jobs:
         emacs: ['30.1', '31.1']
     steps:
       - uses: actions/checkout@v7
+      # LispM Kit, with which SHRDLU declares its commands.
+      - uses: actions/checkout@v7
+        with:
+          repository: LispMachineLab/lispm-kit
+          path: .deps/lispm-kit
       # Emacs Common Lisp, which runs SHRDLU, and SHRDLU's Common Lisp,
       # from their own repositories.
       - uses: actions/checkout@v7
@@ -32,4 +37,4 @@ jobs:
         with:
           version: ${{ matrix.emacs }}
       - name: Test
-        run: make test compile EMACS_CL=.deps/emacs-cl SHRDLU_SOURCE=.deps/www-shrdlu
+        run: make test compile EMACS_CL=.deps/emacs-cl SHRDLU_SOURCE=.deps/www-shrdlu LISPM_KIT=.deps/lispm-kit

@@ -44,7 +44,9 @@ in the App Store's catalog, is made of it.
 
 This runs the Common Lisp port of the 1990s, revived by Tom Sgouros as [[https://github.com/tsgouros/www-shrdlu][www-shrdlu]], unchanged
 but for fixes kept in [[https://github.com/LispMachineLab/www-shrdlu][LispMachineLab's fork]].  [[https://github.com/LispMachineLab/emacs-cl][Emacs Common Lisp]] runs it, in a batch Emacs
-beside yours; the App Store installs it first.  [[file:lisp/shrdlu.lisp][lisp/shrdlu.lisp]] loads SHRDLU and makes its hand
+beside yours; the App Store installs it first, and [[https://github.com/LispMachineLab/lispm-kit][LispM Kit]], with which the window declares each
+command once: its key, its menu item and, for the main ones, the words of a button.
+[[file:lisp/shrdlu.lisp][lisp/shrdlu.lisp]] loads SHRDLU and makes its hand
 report its moves, which lispm-shrdlu.el draws.
 
 The first start fetches SHRDLU's Common Lisp with git, at the commit of
@@ -54,7 +56,7 @@ dialogue, ~C-c C-n~ starts it again with the blocks where they began.
 * Develop
 
 #+begin_src sh
-make test compile   # EMACS_CL=../emacs-cl SHRDLU_SOURCE=../www-shrdlu by default
+make test compile   # EMACS_CL=../emacs-cl SHRDLU_SOURCE=../www-shrdlu LISPM_KIT=../lispm-kit by default
 #+end_src
 
 A test checks that no file of SHRDLU but the tests names LispM Desktop's code.

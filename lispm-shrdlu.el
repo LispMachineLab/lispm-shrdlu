@@ -5,7 +5,7 @@
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-shrdlu
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "30.1") (emacs-cl "0.6.0"))
+;; Package-Requires: ((emacs "30.1") (emacs-cl "0.6.0") (lispm-kit "0.1.0"))
 ;; Keywords: games, lisp
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -52,6 +52,7 @@
 (require 'comint)
 (require 'easymenu)
 (require 'svg)
+(require 'lispm-kit-commands)
 (require 'emacs-cl)
 
 (defgroup lispm-shrdlu nil
@@ -521,8 +522,6 @@ This is one of `kill-buffer-hook' of the dialogue."
 
 (defvar-keymap lispm-shrdlu-mode-map
   :parent comint-mode-map
-  "C-c C-n" #'lispm-shrdlu-new
-  "C-c C-s" #'lispm-shrdlu-say
   ;; Comint's menus are a shell's.
   "<menu-bar> <signals>" #'undefined
   "<menu-bar> <inout>" #'undefined
@@ -532,12 +531,14 @@ This is one of `kill-buffer-hook' of the dialogue."
   "The sentences of SHRDLU's dialogue of 1972."
   '("Sentences" :filter lispm-shrdlu--sentences-menu))
 
-;; Defined after Sentences, to come before it in the menu bar.
-(easy-menu-define lispm-shrdlu-menu lispm-shrdlu-mode-map
-  "Menu of the dialogue with SHRDLU."
-  '("SHRDLU"
-    ["New Dialogue" lispm-shrdlu-new]
-    ["Say a Sentence of 1972..." lispm-shrdlu-say (lispm-shrdlu-running-p)]))
+;; Each command once: its keys, its menu item and, for the main ones, the
+;; words of a button, for an interface showing them as buttons.  Defined
+;; after Sentences, to come before it in the menu bar.
+(lispm-kit-define-commands lispm-shrdlu-mode
+  :menu "SHRDLU"
+  (lispm-shrdlu-new :key "C-c C-n" :label "New Dialogue" :button t)
+  (lispm-shrdlu-say
+   :key "C-c C-s" :label "Say a Sentence of 1972..." :button "Say…" :enabled (lispm-shrdlu-running-p)))
 
 (defun lispm-shrdlu--keep-world (window)
   "Show the blocks world below WINDOW, now showing the dialogue.
