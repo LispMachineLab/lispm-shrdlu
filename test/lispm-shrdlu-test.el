@@ -340,4 +340,20 @@ own answer.  Closing the dialogue tells those still waiting."
     (kill-buffer (current-buffer))
     (should (equal lispm-shrdlu-test--answers '((nil "The dialogue with SHRDLU was closed"))))))
 
+(ert-deftest lispm-shrdlu-status ()
+  "The drawing's window says whether SHRDLU talks."
+  (cl-letf (((symbol-function 'lispm-shrdlu-running-p) #'always))
+    (should (equal (lispm-shrdlu-status) "Talking")))
+  (cl-letf (((symbol-function 'lispm-shrdlu-running-p) #'ignore))
+    (should (equal (lispm-shrdlu-status) "Stopped"))))
+
+(ert-deftest lispm-shrdlu-knows-no-desktop ()
+  "SHRDLU stands alone: none of its files but the tests names LispM
+Desktop's code, which dresses its windows from its own side."
+  (dolist (file (directory-files (file-name-directory (locate-library "lispm-shrdlu")) t "\\.el\\'"))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (should-not (and (re-search-forward "lispm-desktop\\|platinum" nil t)
+                       (format "%s:%d" (file-name-nondirectory file) (line-number-at-pos)))))))
+
 ;;; lispm-shrdlu-test.el ends here

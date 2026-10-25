@@ -42,7 +42,8 @@
 ;; which says a sentence in the dialogue and gives back SHRDLU's answer.  The first
 ;; start fetches SHRDLU's Common Lisp, at `lispm-shrdlu-source-revision',
 ;; into `lispm-shrdlu-source-directory' with git.  In LispM Desktop it
-;; is an application of the App Store.
+;; is an application of the App Store, its window dressed from the
+;; desktop's side with `lispm-shrdlu-running-p' and `lispm-shrdlu-status'.
 
 ;;; Code:
 
@@ -52,8 +53,6 @@
 (require 'easymenu)
 (require 'svg)
 (require 'emacs-cl)
-
-(declare-function lispm-desktop-app-ui-define "lispm-desktop-app-ui" (key &rest properties))
 
 (defgroup lispm-shrdlu nil
   "SHRDLU, Winograd's blocks world."
@@ -858,27 +857,11 @@ dialogue keeps the title bar, the world the window's bottom."
         (set-window-parameter below 'no-other-window t)
         (lispm-shrdlu--render)))))
 
-;;;; In LispM Desktop
+;;;; What the window says
 
-(defun lispm-shrdlu--status ()
-  "Return what the window's bottom says."
+(defun lispm-shrdlu-status ()
+  "Return what the drawing's window says at its bottom."
   (if (lispm-shrdlu-running-p) "Talking" "Stopped"))
-
-(with-eval-after-load 'lispm-desktop-app-ui
-  (lispm-desktop-app-ui-define
-   'lispm-shrdlu-mode
-   :title "SHRDLU"
-   :prose t
-   :buttons '(("New Dialogue" lispm-shrdlu-new)
-              ("Say…" lispm-shrdlu-say lispm-shrdlu-running-p))
-   :label (lambda () "Type a sentence, then Return")
-   :bottom nil)
-  (lispm-desktop-app-ui-define
-   'lispm-shrdlu-world-mode
-   :title "SHRDLU"
-   :buttons nil
-   :cursor nil
-   :status #'lispm-shrdlu--status))
 
 (defun lispm-shrdlu-unload-function ()
   "Stop SHRDLU and its drawing; then let unloading go on."
