@@ -340,6 +340,34 @@ own answer.  Closing the dialogue tells those still waiting."
     (kill-buffer (current-buffer))
     (should (equal lispm-shrdlu-test--answers '((nil "The dialogue with SHRDLU was closed"))))))
 
+(ert-deftest lispm-shrdlu-say-uses-lispm-ui ()
+  "Interactive `lispm-shrdlu-say' asks with `lispm-ui' and sends the choice."
+  (let* ((buffer (lispm-shrdlu--buffers))
+         (asked nil)
+         (sent nil)
+         (lispm-ui-form-prompt-function
+          (lambda (prompt &rest opts)
+            (setq asked (list prompt (plist-get opts :choices)))
+            (car (plist-get opts :choices)))))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((process (make-process :name "shrdlu-say-test" :buffer buffer
+                                       :command '("cat") :noquery t :connection-type 'pipe)))
+            (unwind-protect
+                (progn
+                  (set-marker (process-mark process) (point-max))
+                  (cl-letf (((symbol-function 'comint-send-input)
+                             (lambda (&rest _)
+                               (setq sent (buffer-substring-no-properties
+                                           (process-mark process) (point-max))))))
+                    (call-interactively #'lispm-shrdlu-say)))
+              (set-process-sentinel process #'ignore)
+              (delete-process process))))
+      (dolist (name (list lispm-shrdlu-buffer-name lispm-shrdlu-world-buffer-name))
+        (when (get-buffer name) (kill-buffer name))))
+    (should (equal asked (list "Say: " lispm-shrdlu-sentences)))
+    (should (equal sent (car lispm-shrdlu-sentences)))))
+
 (ert-deftest lispm-shrdlu-status ()
   "The drawing's window says whether SHRDLU talks."
   (cl-letf (((symbol-function 'lispm-shrdlu-running-p) #'always))

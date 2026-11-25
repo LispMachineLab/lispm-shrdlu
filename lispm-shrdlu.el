@@ -5,7 +5,7 @@
 ;; Author: Ryan.K
 ;; URL: https://github.com/LispMachineLab/lispm-shrdlu
 ;; Version: 0.1.1
-;; Package-Requires: ((emacs "30.1") (emacs-cl "0.6.0") (lispm-ui "0.8.0"))
+;; Package-Requires: ((emacs "30.1") (emacs-cl "0.6.0") (lispm-ui "0.12.0"))
 ;; Keywords: games, lisp
 ;; SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -53,6 +53,7 @@
 (require 'easymenu)
 (require 'svg)
 (require 'lispm-kit-commands)
+(require 'lispm-ui-ask)
 (require 'emacs-cl)
 
 (defgroup lispm-shrdlu nil
@@ -409,7 +410,7 @@ follows when it was there."
 
 (defun lispm-shrdlu-say (sentence)
   "Say SENTENCE to SHRDLU, as if typed."
-  (interactive (list (completing-read "Say: " lispm-shrdlu-sentences)))
+  (interactive (list (lispm-ui-read-string "Say: " :choices lispm-shrdlu-sentences)))
   (with-current-buffer (lispm-shrdlu--buffers)
     (let ((process (get-buffer-process (current-buffer))))
       (unless (process-live-p process)
